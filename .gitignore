@@ -1,0 +1,14 @@
+*.exe
+build/
+dist/
+
+*.xlsx
+*.xls
+pedidos.xlsx
+
+__pycache__/
+*.py[cod]
+
+venv/
+.venv/
+
