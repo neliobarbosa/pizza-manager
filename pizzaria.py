@@ -1871,17 +1871,64 @@ def abrir_janela_gerenciar_precos():
             ttkb.Label(frame_item, text=f"{produto}: R$ {preco:.2f}", width=40, anchor="w").pack(side="left", padx=10, pady=5)
             
             def editar_preco(p=produto, c=categoria):
-                novo_preco = simpledialog.askfloat("Editar Preço", f"Novo preço para {p}:", initialvalue=dict_precos[p])
-                if novo_preco is not None and novo_preco > 0:
-                    if c == "Pizzas":
-                        precos_pizzas[p] = novo_preco
-                    elif c == "Bordas":
-                        precos_bordas[p] = novo_preco
-                    elif c == "Adicionais":
-                        precos_adicionais[p] = novo_preco
+                """Abre janela para editar nome e preço do produto."""
+                janela_editar = Toplevel(janela_precos)
+                janela_editar.title(f"Editar {p}")
+                janela_editar.geometry("400x200")
+                janela_editar.resizable(False, False)
+                
+                ttkb.Label(janela_editar, text="Nome do Produto:", font=("Arial", 11)).pack(pady=10, padx=20)
+                entry_nome_edit = ttkb.Entry(janela_editar, width=30)
+                entry_nome_edit.insert(0, p)
+                entry_nome_edit.pack(padx=20, pady=5)
+                
+                ttkb.Label(janela_editar, text="Preço (R$):", font=("Arial", 11)).pack(pady=10, padx=20)
+                entry_preco_edit = ttkb.Entry(janela_editar, width=30)
+                entry_preco_edit.insert(0, str(dict_precos[p]))
+                entry_preco_edit.pack(padx=20, pady=5)
+                
+                def salvar_edicao():
+                    novo_nome = entry_nome_edit.get().strip()
+                    try:
+                        novo_preco = float(entry_preco_edit.get())
+                    except:
+                        messagebox.showerror("Erro", "Preço inválido!")
+                        return
+                    
+                    if not novo_nome or novo_preco <= 0:
+                        messagebox.showerror("Erro", "Nome e preço válidos são obrigatórios!")
+                        return
+                    
+                    # Se o nome mudou, remove o antigo e adiciona o novo
+                    if novo_nome != p:
+                        if c == "Pizzas":
+                            del precos_pizzas[p]
+                            precos_pizzas[novo_nome] = novo_preco
+                        elif c == "Bordas":
+                            del precos_bordas[p]
+                            precos_bordas[novo_nome] = novo_preco
+                        elif c == "Adicionais":
+                            del precos_adicionais[p]
+                            precos_adicionais[novo_nome] = novo_preco
+                        else:
+                            del precos_refrigerantes[p]
+                            precos_refrigerantes[novo_nome] = novo_preco
                     else:
-                        precos_refrigerantes[p] = novo_preco
+                        # Só atualiza o preço
+                        if c == "Pizzas":
+                            precos_pizzas[p] = novo_preco
+                        elif c == "Bordas":
+                            precos_bordas[p] = novo_preco
+                        elif c == "Adicionais":
+                            precos_adicionais[p] = novo_preco
+                        else:
+                            precos_refrigerantes[p] = novo_preco
+                    
+                    janela_editar.destroy()
                     atualizar_lista_produtos()
+                
+                ttkb.Button(janela_editar, text="Salvar", command=salvar_edicao, bootstyle="success", width=15).pack(pady=20)
+                ttkb.Button(janela_editar, text="Cancelar", command=janela_editar.destroy, bootstyle="secondary", width=15).pack(pady=5)
             
             def remover_produto(p=produto, c=categoria):
                 if messagebox.askyesno("Confirmar", f"Remover {p}?"):
@@ -1951,9 +1998,120 @@ def _criar_aba_gerenciar_precos(notebook_principal):
     
     ttkb.Button(frame_precos, text="Abrir Gerenciador de Preços", command=abrir_janela_gerenciar_precos, 
                 bootstyle="info", width=30).pack(pady=20)
+
+
+def abrir_janela_resumo_geral():
+    """Abre janela com TODOS os pedidos já feitos."""
+    janela_resumo = Toplevel(janela)
+    janela_resumo.title("Resumo Geral de Pedidos")
+    janela_resumo.geometry("800x600")
     
-    ttkb.Label(frame_precos, text="Os preços são salvos automaticamente no arquivo precos.xlsx", 
-               font=("Arial", 10, "italic")).pack(pady=10)
+    carregar_pedidos()
+    
+    # Frame de filtro por data
+    frame_filtro = ttkb.LabelFrame(janela_resumo, text=" Filtrar por Período ", padding=10)
+    frame_filtro.pack(fill="x", padx=10, pady=10)
+    
+    ttkb.Label(frame_filtro, text="Data Inicial (DD/MM/YYYY):").pack(side="left", padx=5)
+    entry_data_inicial = ttkb.Entry(frame_filtro, width=15)
+    entry_data_inicial.pack(side="left", padx=5)
+    
+    ttkb.Label(frame_filtro, text="Data Final (DD/MM/YYYY):").pack(side="left", padx=5)
+    entry_data_final = ttkb.Entry(frame_filtro, width=15)
+    entry_data_final.pack(side="left", padx=5)
+    
+    # Canvas com scrollbar para listar pedidos
+    canvas = Canvas(janela_resumo, bg="white")
+    scrollbar = ttk.Scrollbar(janela_resumo, orient="vertical", command=canvas.yview)
+    scrollable_frame = ttkb.Frame(canvas)
+    
+    scrollable_frame.bind(
+        "<Configure>",
+        lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+    )
+    
+    canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+    canvas.configure(yscrollcommand=scrollbar.set)
+    
+    canvas.pack(side="left", fill="both", expand=True, padx=10, pady=10)
+    scrollbar.pack(side="right", fill="y")
+    
+    # Frame para totais
+    frame_totais = ttkb.LabelFrame(janela_resumo, text=" Resumo ", padding=10)
+    frame_totais.pack(fill="x", padx=10, pady=10)
+    
+    label_total = ttkb.Label(frame_totais, text="", font=("Arial", 12, "bold"))
+    label_total.pack(fill="x")
+    
+    def atualizar_pedidos():
+        """Atualiza a lista de pedidos baseado no filtro de datas."""
+        # Limpa o canvas
+        for widget in scrollable_frame.winfo_children():
+            widget.destroy()
+        
+        data_inicial = entry_data_inicial.get().strip()
+        data_final = entry_data_final.get().strip()
+        
+        # Converte datas para formato DD/MM se necessário
+        pedidos_filtrados = pedidos_cache
+        
+        if data_inicial or data_final:
+            try:
+                if data_inicial:
+                    dia_inicial, mes_inicial, ano_inicial = map(int, data_inicial.split('/'))
+                    data_inicial_dt = datetime(ano_inicial, mes_inicial, dia_inicial)
+                else:
+                    data_inicial_dt = datetime(1900, 1, 1)
+                
+                if data_final:
+                    dia_final, mes_final, ano_final = map(int, data_final.split('/'))
+                    data_final_dt = datetime(ano_final, mes_final, dia_final)
+                else:
+                    data_final_dt = datetime(2100, 12, 31)
+                
+                pedidos_filtrados = []
+                for p in pedidos_cache:
+                    hora_str = str(p.get('hora', ''))
+                    if hora_str and len(hora_str) >= 10:
+                        try:
+                            dia, mes, ano = map(int, hora_str[:10].split('/'))
+                            pedido_dt = datetime(ano, mes, dia)
+                            if data_inicial_dt <= pedido_dt <= data_final_dt:
+                                pedidos_filtrados.append(p)
+                        except:
+                            pass
+            except:
+                messagebox.showerror("Erro", "Formato de data inválido! Use DD/MM/YYYY")
+                return
+        
+        # Exibe os pedidos
+        total_pedidos = len(pedidos_filtrados)
+        total_faturamento = sum(p.get('valor_total', 0.0) for p in pedidos_filtrados)
+        
+        if total_pedidos == 0:
+            ttkb.Label(scrollable_frame, text="Nenhum pedido encontrado neste período.", font=("Arial", 11)).pack(pady=20)
+            label_total.config(text=f"Total: 0 pedidos | Faturamento: R$ 0,00")
+            return
+        
+        for idx, pedido in enumerate(pedidos_filtrados, 1):
+            frame_pedido = ttkb.Frame(scrollable_frame, relief="solid", borderwidth=1)
+            frame_pedido.pack(fill="x", pady=5, padx=5)
+            
+            cliente = pedido.get('cliente', 'N/A')
+            data_hora = pedido.get('hora', 'N/A')
+            valor = pedido.get('valor_total', 0.0)
+            forma_pag = pedido.get('forma_pagamento', 'N/A')
+            
+            texto = f"{idx}. {cliente} | {data_hora} | R$ {valor:.2f} | {forma_pag}"
+            ttkb.Label(frame_pedido, text=texto, anchor="w").pack(fill="x", padx=10, pady=5)
+        
+        label_total.config(text=f"Total: {total_pedidos} pedidos | Faturamento: R$ {total_faturamento:.2f}".replace('.', ','))
+    
+    ttkb.Button(frame_filtro, text="Filtrar", command=atualizar_pedidos, bootstyle="info").pack(side="left", padx=5)
+    ttkb.Button(frame_filtro, text="Limpar Filtro", command=lambda: (entry_data_inicial.delete(0, ttkb.END), entry_data_final.delete(0, ttkb.END), atualizar_pedidos()), bootstyle="secondary").pack(side="left", padx=5)
+    
+    # Carrega todos os pedidos inicialmente
+    atualizar_pedidos()
 
 
 def _criar_aba_caixa(notebook_principal):
@@ -1971,7 +2129,7 @@ def _criar_aba_caixa(notebook_principal):
     relatorio_label = ttkb.Label(frame_relatorios, text="Carregando resumo...", justify="left", font=('Courier', 10))
     relatorio_label.pack(fill="x", padx=5, pady=5)
     
-    ttkb.Button(frame_relatorios, text="Gerar Resumo Geral (Todos os Pedidos)", command=gerar_relatorio_geral, bootstyle="info").pack(fill="x", pady=5)
+    ttkb.Button(frame_relatorios, text="Gerar Resumo Geral (Todos os Pedidos)", command=abrir_janela_resumo_geral, bootstyle="info").pack(fill="x", pady=5)
     
     # Botão de Limpeza
     frame_limpeza = ttkb.Frame(frame_gerenciamento)
