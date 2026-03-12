@@ -1774,6 +1774,12 @@ def _criar_aba_clientes(notebook_principal):
     entry_busca = ttkb.Entry(frame_busca, textvariable=busca_var, width=30)
     entry_busca.pack(side="left", padx=5)
     
+    def executar_busca():
+        filtrar_clientes()
+    
+    ttkb.Button(frame_busca, text="Buscar", command=executar_busca, bootstyle="info").pack(side="left", padx=5)
+    ttkb.Button(frame_busca, text="Limpar", command=lambda: (busca_var.set(""), atualizar_lista_clientes()), bootstyle="secondary").pack(side="left", padx=5)
+    
     # Tabela de Clientes
     tabela_clientes = ttkb.Treeview(frame_clientes, columns=('nome', 'telefone', 'endereco', 'pedidos'), show='headings', height=15)
     # ORDEM CORRIGIDA: Nome, Telefone, Endereço, Pedidos
@@ -1849,6 +1855,8 @@ def abrir_janela_gerenciar_precos():
     janela_precos = Toplevel(janela)
     janela_precos.title("Gerenciar Preços")
     janela_precos.geometry("600x500")
+    janela_precos.transient(janela)
+    janela_precos.grab_set()
     
     # Frame para seleção de categoria
     frame_categoria = ttkb.Frame(janela_precos, padding=10)
@@ -1888,13 +1896,58 @@ def abrir_janela_gerenciar_precos():
     frame_novo = ttkb.LabelFrame(janela_precos, text=" Adicionar Novo Produto ", padding=10)
     frame_novo.pack(fill="x", padx=10, pady=10)
     
-    ttkb.Label(frame_novo, text="Nome do Produto:").grid(row=0, column=0, padx=5, pady=5)
-    entry_nome = ttkb.Entry(frame_novo, width=30)
-    entry_nome.grid(row=0, column=1, padx=5, pady=5)
-    
-    ttkb.Label(frame_novo, text="Preço (R$):").grid(row=1, column=0, padx=5, pady=5)
-    entry_preco = ttkb.Entry(frame_novo, width=30)
-    entry_preco.grid(row=1, column=1, padx=5, pady=5)
+    def abrir_popup_novo_produto():
+        """Abre popup para adicionar novo produto."""
+        janela_novo = Toplevel(janela_precos)
+        janela_novo.title("Adicionar Novo Produto")
+        janela_novo.geometry("400x280")
+        janela_novo.resizable(False, False)
+        janela_novo.transient(janela_precos)
+        janela_novo.grab_set()
+        
+        ttkb.Label(janela_novo, text="Nome do Produto:", font=("Arial", 11)).pack(pady=10, padx=20)
+        entry_nome = ttkb.Entry(janela_novo, width=30)
+        entry_nome.pack(padx=20, pady=5)
+        
+        ttkb.Label(janela_novo, text="Preço (R$):", font=("Arial", 11)).pack(pady=10, padx=20)
+        entry_preco = ttkb.Entry(janela_novo, width=30)
+        entry_preco.pack(padx=20, pady=5)
+        
+        ttkb.Label(janela_novo, text="Tipo de Produto:", font=("Arial", 11)).pack(pady=10, padx=20)
+        tipo_var = ttkb.StringVar(value="Pizzas")
+        tipo_combo = ttkb.Combobox(janela_novo, textvariable=tipo_var, 
+                                    values=["Pizzas", "Bordas", "Adicionais", "Refrigerantes"],
+                                    state="readonly", width=27)
+        tipo_combo.pack(padx=20, pady=5)
+        
+        def salvar_novo_produto():
+            nome = entry_nome.get().strip()
+            try:
+                preco = float(entry_preco.get())
+            except:
+                messagebox.showerror("Erro", "Preço inválido!")
+                return
+            
+            if not nome or preco <= 0:
+                messagebox.showerror("Erro", "Nome e preço válidos são obrigatórios!")
+                return
+            
+            tipo = tipo_var.get()
+            if tipo == "Pizzas":
+                precos_pizzas[nome] = preco
+            elif tipo == "Bordas":
+                precos_bordas[nome] = preco
+            elif tipo == "Adicionais":
+                precos_adicionais[nome] = preco
+            else:
+                precos_refrigerantes[nome] = preco
+            
+            messagebox.showinfo("Sucesso", f"Produto '{nome}' adicionado com sucesso!")
+            janela_novo.destroy()
+            atualizar_lista_produtos()
+        
+        ttkb.Button(janela_novo, text="Salvar", command=salvar_novo_produto, bootstyle="success", width=20).pack(pady=20)
+        ttkb.Button(janela_novo, text="Cancelar", command=janela_novo.destroy, bootstyle="secondary", width=20).pack(pady=5)
     
     def atualizar_lista_produtos():
         """Atualiza a lista de produtos da categoria selecionada."""
@@ -1921,8 +1974,10 @@ def abrir_janela_gerenciar_precos():
                 """Abre janela para editar nome e preço do produto."""
                 janela_editar = Toplevel(janela_precos)
                 janela_editar.title(f"Editar {p}")
-                janela_editar.geometry("400x200")
+                janela_editar.geometry("400x220")
                 janela_editar.resizable(False, False)
+                janela_editar.transient(janela_precos)
+                janela_editar.grab_set()
                 
                 ttkb.Label(janela_editar, text="Nome do Produto:", font=("Arial", 11)).pack(pady=10, padx=20)
                 entry_nome_edit = ttkb.Entry(janela_editar, width=30)
@@ -1978,7 +2033,20 @@ def abrir_janela_gerenciar_precos():
                 ttkb.Button(janela_editar, text="Cancelar", command=janela_editar.destroy, bootstyle="secondary", width=15).pack(pady=5)
             
             def remover_produto(p=produto, c=categoria):
-                if messagebox.askyesno("Confirmar", f"Remover {p}?"):
+                """Remove um produto com confirmação."""
+                janela_confirm = Toplevel(janela_precos)
+                janela_confirm.title("Confirmar Remoção")
+                janela_confirm.geometry("300x120")
+                janela_confirm.resizable(False, False)
+                janela_confirm.transient(janela_precos)
+                janela_confirm.grab_set()
+                
+                ttkb.Label(janela_confirm, text=f"Deseja remover '{p}'?", font=("Arial", 12)).pack(pady=20)
+                
+                frame_botoes = ttkb.Frame(janela_confirm)
+                frame_botoes.pack(pady=10)
+                
+                def confirmar():
                     if c == "Pizzas":
                         del precos_pizzas[p]
                     elif c == "Bordas":
@@ -1987,40 +2055,18 @@ def abrir_janela_gerenciar_precos():
                         del precos_adicionais[p]
                     else:
                         del precos_refrigerantes[p]
+                    janela_confirm.destroy()
                     atualizar_lista_produtos()
+                
+                ttkb.Button(frame_botoes, text="Sim, Remover", command=confirmar, bootstyle="danger", width=12).pack(side="left", padx=5)
+                ttkb.Button(frame_botoes, text="Cancelar", command=janela_confirm.destroy, bootstyle="secondary", width=12).pack(side="left", padx=5)
             
             ttkb.Button(frame_item, text="Editar", command=editar_preco, bootstyle="warning", width=10).pack(side="left", padx=2)
             ttkb.Button(frame_item, text="Remover", command=remover_produto, bootstyle="danger", width=10).pack(side="left", padx=2)
     
-    def adicionar_novo_produto():
-        """Adiciona um novo produto à categoria."""
-        nome = entry_nome.get().strip()
-        try:
-            preco = float(entry_preco.get())
-        except:
-            messagebox.showerror("Erro", "Preço inválido!")
-            return
-        
-        if not nome or preco <= 0:
-            messagebox.showerror("Erro", "Nome e preço válidos são obrigatórios!")
-            return
-        
-        categoria = categoria_var.get()
-        if categoria == "Pizzas":
-            precos_pizzas[nome] = preco
-        elif categoria == "Bordas":
-            precos_bordas[nome] = preco
-        elif categoria == "Adicionais":
-            precos_adicionais[nome] = preco
-        else:
-            precos_refrigerantes[nome] = preco
-        
-        entry_nome.delete(0, ttkb.END)
-        entry_preco.delete(0, ttkb.END)
-        atualizar_lista_produtos()
-    
+
     categoria_combo.bind("<<ComboboxSelected>>", lambda e: atualizar_lista_produtos())
-    ttkb.Button(frame_novo, text="Adicionar", command=adicionar_novo_produto, bootstyle="success").grid(row=2, column=0, columnspan=2, pady=10, sticky="ew")
+    ttkb.Button(frame_novo, text="+ Adicionar Novo Produto", command=abrir_popup_novo_produto, bootstyle="success", width=30).pack(pady=10)
     
     # Frame de botões inferiores
     frame_botoes = ttkb.Frame(janela_precos)
@@ -2052,6 +2098,8 @@ def abrir_janela_resumo_geral():
     janela_resumo = Toplevel(janela)
     janela_resumo.title("Resumo Geral de Pedidos")
     janela_resumo.geometry("800x600")
+    janela_resumo.transient(janela)
+    janela_resumo.grab_set()
     
     carregar_pedidos()
     
@@ -2194,6 +2242,8 @@ def abrir_janela_adicionar_gasto():
     janela_gasto.title("Adicionar Gasto")
     janela_gasto.geometry("400x250")
     janela_gasto.resizable(False, False)
+    janela_gasto.transient(janela)
+    janela_gasto.grab_set()
     
     ttkb.Label(janela_gasto, text="Data (DD/MM/YYYY):", font=("Arial", 11)).pack(pady=10, padx=20)
     entry_data = ttkb.Entry(janela_gasto, width=30)
@@ -2241,6 +2291,8 @@ def abrir_detalhes_pedidos_periodo(data_inicio, data_fim):
     janela_detalhes = Toplevel(janela)
     janela_detalhes.title(f"Pedidos: {data_inicio} a {data_fim}")
     janela_detalhes.geometry("800x600")
+    janela_detalhes.transient(janela)
+    janela_detalhes.grab_set()
     
     carregar_pedidos()
     
