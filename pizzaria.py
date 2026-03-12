@@ -47,7 +47,8 @@ WORKSHEET_NAME = 'Pedidos'
 EXCEL_LOCK = threading.Lock() 
 
 # VARIÁVEIS GLOBAIS
-pedidos_cache = [] 
+pedidos_cache = []
+gastos_cache = [] 
 data_atual = datetime.now().strftime("%d/%m/%Y")
 historico_clientes = {} 
 tabela_ativos = None 
@@ -97,6 +98,50 @@ def carregar_precos_do_excel():
         return True
     except Exception as e:
         messagebox.showerror("Erro ao carregar preços", f"Erro: {e}")
+        return False
+
+
+def carregar_gastos_do_excel():
+    """Carrega os gastos do arquivo Excel gastos.xlsx."""
+    global gastos_cache
+    
+    try:
+        if not os.path.exists('gastos.xlsx'):
+            # Se não existir, cria um vazio
+            df_vazio = pd.DataFrame(columns=['Data', 'Descrição', 'Valor'])
+            df_vazio.to_excel('gastos.xlsx', sheet_name='Gastos', index=False)
+            gastos_cache = []
+            return True
+        
+        df = pd.read_excel('gastos.xlsx', sheet_name='Gastos')
+        gastos_cache = df.to_dict('records')
+        return True
+    except Exception as e:
+        messagebox.showerror("Erro ao carregar gastos", f"Erro: {e}")
+        return False
+
+
+def salvar_gasto_no_excel(data, descricao, valor):
+    """Adiciona um novo gasto ao arquivo Excel."""
+    try:
+        if os.path.exists('gastos.xlsx'):
+            df = pd.read_excel('gastos.xlsx', sheet_name='Gastos')
+        else:
+            df = pd.DataFrame(columns=['Data', 'Descrição', 'Valor'])
+        
+        novo_gasto = pd.DataFrame({
+            'Data': [data],
+            'Descrição': [descricao],
+            'Valor': [valor]
+        })
+        
+        df = pd.concat([df, novo_gasto], ignore_index=True)
+        df.to_excel('gastos.xlsx', sheet_name='Gastos', index=False)
+        
+        carregar_gastos_do_excel()
+        return True
+    except Exception as e:
+        messagebox.showerror("Erro ao salvar gasto", f"Erro: {e}")
         return False
 
 
@@ -212,6 +257,8 @@ def _garantir_arquivo_excel():
     
     # Carrega os preços do arquivo
     carregar_precos_do_excel()
+    # Carrega os gastos do arquivo
+    carregar_gastos_do_excel()
     return True
 
 def carregar_pedidos():
@@ -2141,6 +2188,417 @@ def _criar_aba_caixa(notebook_principal):
     gerar_relatorio_geral()
 
 
+def abrir_janela_adicionar_gasto():
+    """Abre janela para adicionar um novo gasto."""
+    janela_gasto = Toplevel(janela)
+    janela_gasto.title("Adicionar Gasto")
+    janela_gasto.geometry("400x250")
+    janela_gasto.resizable(False, False)
+    
+    ttkb.Label(janela_gasto, text="Data (DD/MM/YYYY):", font=("Arial", 11)).pack(pady=10, padx=20)
+    entry_data = ttkb.Entry(janela_gasto, width=30)
+    entry_data.insert(0, datetime.now().strftime("%d/%m/%Y"))
+    entry_data.pack(padx=20, pady=5)
+    
+    ttkb.Label(janela_gasto, text="Descrição do Gasto:", font=("Arial", 11)).pack(pady=10, padx=20)
+    entry_descricao = ttkb.Entry(janela_gasto, width=30)
+    entry_descricao.pack(padx=20, pady=5)
+    
+    ttkb.Label(janela_gasto, text="Valor (R$):", font=("Arial", 11)).pack(pady=10, padx=20)
+    entry_valor = ttkb.Entry(janela_gasto, width=30)
+    entry_valor.pack(padx=20, pady=5)
+    
+    def salvar_gasto():
+        data = entry_data.get().strip()
+        descricao = entry_descricao.get().strip()
+        valor_str = entry_valor.get().strip()
+        
+        if not data or not descricao or not valor_str:
+            messagebox.showerror("Erro", "Preencha todos os campos!")
+            return
+        
+        try:
+            valor = float(valor_str)
+        except:
+            messagebox.showerror("Erro", "Valor inválido!")
+            return
+        
+        if valor <= 0:
+            messagebox.showerror("Erro", "Valor deve ser maior que zero!")
+            return
+        
+        if salvar_gasto_no_excel(data, descricao, valor):
+            messagebox.showinfo("Sucesso", "Gasto adicionado com sucesso!")
+            janela_gasto.destroy()
+        else:
+            messagebox.showerror("Erro", "Erro ao adicionar gasto!")
+    
+    ttkb.Button(janela_gasto, text="Salvar", command=salvar_gasto, bootstyle="success", width=20).pack(pady=20)
+
+
+def abrir_detalhes_pedidos_periodo(data_inicio, data_fim):
+    """Abre janela com detalhes dos pedidos de um período específico."""
+    janela_detalhes = Toplevel(janela)
+    janela_detalhes.title(f"Pedidos: {data_inicio} a {data_fim}")
+    janela_detalhes.geometry("800x600")
+    
+    carregar_pedidos()
+    
+    # Canvas com scrollbar
+    canvas = Canvas(janela_detalhes, bg="white")
+    scrollbar = ttk.Scrollbar(janela_detalhes, orient="vertical", command=canvas.yview)
+    scrollable_frame = ttkb.Frame(canvas)
+    
+    scrollable_frame.bind(
+        "<Configure>",
+        lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+    )
+    
+    canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+    canvas.configure(yscrollcommand=scrollbar.set)
+    
+    canvas.pack(side="left", fill="both", expand=True, padx=10, pady=10)
+    scrollbar.pack(side="right", fill="y")
+    
+    # Frame para totais
+    frame_totais = ttkb.LabelFrame(janela_detalhes, text=" Resumo ", padding=10)
+    frame_totais.pack(fill="x", padx=10, pady=10)
+    
+    label_total = ttkb.Label(frame_totais, text="", font=("Arial", 12, "bold"))
+    label_total.pack(fill="x")
+    
+    # Filtra pedidos por período
+    try:
+        dia_ini, mes_ini, ano_ini = map(int, data_inicio.split('/'))
+        dia_fim, mes_fim, ano_fim = map(int, data_fim.split('/'))
+        data_inicio_dt = datetime(ano_ini, mes_ini, dia_ini)
+        data_fim_dt = datetime(ano_fim, mes_fim, dia_fim)
+        
+        pedidos_filtrados = []
+        for p in pedidos_cache:
+            hora_str = str(p.get('hora', ''))
+            if hora_str and len(hora_str) >= 10:
+                try:
+                    dia, mes, ano = map(int, hora_str[:10].split('/'))
+                    pedido_dt = datetime(ano, mes, dia)
+                    if data_inicio_dt <= pedido_dt <= data_fim_dt:
+                        pedidos_filtrados.append(p)
+                except:
+                    pass
+    except:
+        messagebox.showerror("Erro", "Formato de data inválido!")
+        janela_detalhes.destroy()
+        return
+    
+    total_faturamento = sum(p.get('valor_total', 0.0) for p in pedidos_filtrados)
+    
+    for idx, pedido in enumerate(pedidos_filtrados, 1):
+        frame_pedido = ttkb.Frame(scrollable_frame, relief="solid", borderwidth=1)
+        frame_pedido.pack(fill="x", pady=5, padx=5)
+        
+        cliente = pedido.get('cliente', 'N/A')
+        data_hora = pedido.get('hora', 'N/A')
+        valor = pedido.get('valor_total', 0.0)
+        forma_pag = pedido.get('forma_pagamento', 'N/A')
+        
+        texto = f"{idx}. {cliente} | {data_hora} | R$ {valor:.2f} | {forma_pag}"
+        ttkb.Label(frame_pedido, text=texto, anchor="w").pack(fill="x", padx=10, pady=5)
+    
+    label_total.config(text=f"Total: {len(pedidos_filtrados)} pedidos | Faturamento: R$ {total_faturamento:.2f}".replace('.', ','))
+
+
+def _criar_aba_gestao(notebook_principal):
+    """Cria a aba de Gestão (Controle de Gastos)."""
+    frame_gestao = ttkb.Frame(notebook_principal, padding=10)
+    notebook_principal.add(frame_gestao, text="Gestão")
+    
+    # Frame de adição de gasto
+    frame_adicionar = ttkb.LabelFrame(frame_gestao, text=" Adicionar Novo Gasto ", padding=10)
+    frame_adicionar.pack(fill="x", pady=10)
+    
+    ttkb.Button(frame_adicionar, text="+ Adicionar Gasto", command=abrir_janela_adicionar_gasto, bootstyle="success", width=30).pack(pady=10)
+    
+    # Frame de filtro
+    frame_filtro = ttkb.LabelFrame(frame_gestao, text=" Filtros ", padding=10)
+    frame_filtro.pack(fill="x", pady=10)
+    
+    ttkb.Label(frame_filtro, text="Buscar por descrição:").pack(side="left", padx=5)
+    busca_var = ttkb.StringVar()
+    entry_busca = ttkb.Entry(frame_filtro, textvariable=busca_var, width=30)
+    entry_busca.pack(side="left", padx=5)
+    
+    mostra_so_gasto_var = ttkb.BooleanVar(value=False)
+    check_gasto = ttkb.Checkbutton(frame_filtro, text="Mostrar só gasto (sem faturamento)", variable=mostra_so_gasto_var)
+    check_gasto.pack(side="left", padx=5)
+    
+    # Frame de abas internas (Dias, Semanas, Meses)
+    notebook_interno = ttkb.Notebook(frame_gestao)
+    notebook_interno.pack(fill="both", expand=True, pady=10)
+    
+    # --- ABA DIAS ---
+    frame_dias = ttkb.Frame(notebook_interno)
+    notebook_interno.add(frame_dias, text="Dias")
+    
+    canvas_dias = Canvas(frame_dias, bg="white")
+    scrollbar_dias = ttk.Scrollbar(frame_dias, orient="vertical", command=canvas_dias.yview)
+    scrollable_dias = ttkb.Frame(canvas_dias)
+    
+    scrollable_dias.bind(
+        "<Configure>",
+        lambda e: canvas_dias.configure(scrollregion=canvas_dias.bbox("all"))
+    )
+    
+    canvas_dias.create_window((0, 0), window=scrollable_dias, anchor="nw")
+    canvas_dias.configure(yscrollcommand=scrollbar_dias.set)
+    canvas_dias.pack(side="left", fill="both", expand=True)
+    scrollbar_dias.pack(side="right", fill="y")
+    
+    frame_total_dias = ttkb.Frame(frame_dias)
+    frame_total_dias.pack(fill="x", padx=10, pady=10)
+    label_total_dias = ttkb.Label(frame_total_dias, text="", font=("Arial", 12, "bold"))
+    label_total_dias.pack(fill="x")
+    
+    # --- ABA SEMANAS ---
+    frame_semanas = ttkb.Frame(notebook_interno)
+    notebook_interno.add(frame_semanas, text="Semanas")
+    
+    canvas_semanas = Canvas(frame_semanas, bg="white")
+    scrollbar_semanas = ttk.Scrollbar(frame_semanas, orient="vertical", command=canvas_semanas.yview)
+    scrollable_semanas = ttkb.Frame(canvas_semanas)
+    
+    scrollable_semanas.bind(
+        "<Configure>",
+        lambda e: canvas_semanas.configure(scrollregion=canvas_semanas.bbox("all"))
+    )
+    
+    canvas_semanas.create_window((0, 0), window=scrollable_semanas, anchor="nw")
+    canvas_semanas.configure(yscrollcommand=scrollbar_semanas.set)
+    canvas_semanas.pack(side="left", fill="both", expand=True)
+    scrollbar_semanas.pack(side="right", fill="y")
+    
+    frame_total_semanas = ttkb.Frame(frame_semanas)
+    frame_total_semanas.pack(fill="x", padx=10, pady=10)
+    label_total_semanas = ttkb.Label(frame_total_semanas, text="", font=("Arial", 12, "bold"))
+    label_total_semanas.pack(fill="x")
+    
+    # --- ABA MESES ---
+    frame_meses = ttkb.Frame(notebook_interno)
+    notebook_interno.add(frame_meses, text="Meses")
+    
+    canvas_meses = Canvas(frame_meses, bg="white")
+    scrollbar_meses = ttk.Scrollbar(frame_meses, orient="vertical", command=canvas_meses.yview)
+    scrollable_meses = ttkb.Frame(canvas_meses)
+    
+    scrollable_meses.bind(
+        "<Configure>",
+        lambda e: canvas_meses.configure(scrollregion=canvas_meses.bbox("all"))
+    )
+    
+    canvas_meses.create_window((0, 0), window=scrollable_meses, anchor="nw")
+    canvas_meses.configure(yscrollcommand=scrollbar_meses.set)
+    canvas_meses.pack(side="left", fill="both", expand=True)
+    scrollbar_meses.pack(side="right", fill="y")
+    
+    frame_total_meses = ttkb.Frame(frame_meses)
+    frame_total_meses.pack(fill="x", padx=10, pady=10)
+    label_total_meses = ttkb.Label(frame_total_meses, text="", font=("Arial", 12, "bold"))
+    label_total_meses.pack(fill="x")
+    
+    def atualizar_visualizacao():
+        """Atualiza todas as visualizações (Dias, Semanas, Meses)."""
+        carregar_gastos_do_excel()
+        carregar_pedidos()
+        
+        termo_busca = busca_var.get().lower()
+        mostra_so_gasto = mostra_so_gasto_var.get()
+        
+        # Filtra gastos por termo de busca
+        gastos_filtrados = [g for g in gastos_cache if termo_busca in str(g.get('Descrição', '')).lower()]
+        
+        # --- ATUALIZAR DIAS ---
+        for widget in scrollable_dias.winfo_children():
+            widget.destroy()
+        
+        # Agrupa gastos por dia
+        gastos_por_dia = {}
+        for g in gastos_filtrados:
+            data = str(g.get('Data', 'N/A'))
+            if data not in gastos_por_dia:
+                gastos_por_dia[data] = 0
+            gastos_por_dia[data] += g.get('Valor', 0)
+        
+        # Agrupa pedidos por dia
+        pedidos_por_dia = {}
+        for p in pedidos_cache:
+            hora_str = str(p.get('hora', ''))
+            if hora_str and len(hora_str) >= 10:
+                data = hora_str[:10]
+                if data not in pedidos_por_dia:
+                    pedidos_por_dia[data] = 0
+                pedidos_por_dia[data] += p.get('valor_total', 0.0)
+        
+        total_gasto_dias = 0
+        total_faturamento_dias = 0
+        
+        # Combina todas as datas
+        todas_datas = sorted(set(list(gastos_por_dia.keys()) + list(pedidos_por_dia.keys())), reverse=True)
+        
+        for data in todas_datas:
+            gasto = gastos_por_dia.get(data, 0)
+            faturamento = pedidos_por_dia.get(data, 0)
+            lucro = faturamento - gasto
+            
+            total_gasto_dias += gasto
+            total_faturamento_dias += faturamento
+            
+            frame_dia = ttkb.Frame(scrollable_dias, relief="solid", borderwidth=1)
+            frame_dia.pack(fill="x", pady=5, padx=5)
+            
+            if mostra_so_gasto:
+                texto = f"{data} | Gasto: R$ {gasto:.2f}"
+            else:
+                texto = f"{data} | Gasto: R$ {gasto:.2f} | Faturamento: R$ {faturamento:.2f} | Lucro: R$ {lucro:.2f}"
+            
+            label_info = ttkb.Label(frame_dia, text=texto, anchor="w")
+            label_info.pack(fill="x", padx=10, pady=5)
+            
+            # Double-click para abrir detalhes
+            def abrir_detalhes(d=data):
+                abrir_detalhes_pedidos_periodo(d, d)
+            
+            frame_dia.bind("<Double-Button-1>", lambda e, d=data: abrir_detalhes_pedidos_periodo(d, d))
+            label_info.bind("<Double-Button-1>", lambda e, d=data: abrir_detalhes_pedidos_periodo(d, d))
+        
+        label_total_dias.config(text=f"Total Gasto: R$ {total_gasto_dias:.2f} | Total Faturamento: R$ {total_faturamento_dias:.2f} | Lucro: R$ {total_faturamento_dias - total_gasto_dias:.2f}".replace('.', ','))
+        
+        # --- ATUALIZAR SEMANAS ---
+        for widget in scrollable_semanas.winfo_children():
+            widget.destroy()
+        
+        # Agrupa por semana
+        gastos_por_semana = {}
+        for g in gastos_filtrados:
+            data_str = str(g.get('Data', ''))
+            if data_str:
+                try:
+                    dia, mes, ano = map(int, data_str.split('/'))
+                    data_obj = datetime(ano, mes, dia)
+                    semana = f"Semana {data_obj.isocalendar()[1]} ({ano})"
+                    if semana not in gastos_por_semana:
+                        gastos_por_semana[semana] = 0
+                    gastos_por_semana[semana] += g.get('Valor', 0)
+                except:
+                    pass
+        
+        pedidos_por_semana = {}
+        for p in pedidos_cache:
+            hora_str = str(p.get('hora', ''))
+            if hora_str and len(hora_str) >= 10:
+                try:
+                    dia, mes, ano = map(int, hora_str[:10].split('/'))
+                    data_obj = datetime(ano, mes, dia)
+                    semana = f"Semana {data_obj.isocalendar()[1]} ({ano})"
+                    if semana not in pedidos_por_semana:
+                        pedidos_por_semana[semana] = 0
+                    pedidos_por_semana[semana] += p.get('valor_total', 0.0)
+                except:
+                    pass
+        
+        total_gasto_semanas = 0
+        total_faturamento_semanas = 0
+        
+        todas_semanas = sorted(set(list(gastos_por_semana.keys()) + list(pedidos_por_semana.keys())), reverse=True)
+        
+        for semana in todas_semanas:
+            gasto = gastos_por_semana.get(semana, 0)
+            faturamento = pedidos_por_semana.get(semana, 0)
+            lucro = faturamento - gasto
+            
+            total_gasto_semanas += gasto
+            total_faturamento_semanas += faturamento
+            
+            frame_semana = ttkb.Frame(scrollable_semanas, relief="solid", borderwidth=1)
+            frame_semana.pack(fill="x", pady=5, padx=5)
+            
+            if mostra_so_gasto:
+                texto = f"{semana} | Gasto: R$ {gasto:.2f}"
+            else:
+                texto = f"{semana} | Gasto: R$ {gasto:.2f} | Faturamento: R$ {faturamento:.2f} | Lucro: R$ {lucro:.2f}"
+            
+            label_info = ttkb.Label(frame_semana, text=texto, anchor="w")
+            label_info.pack(fill="x", padx=10, pady=5)
+            frame_semana.bind("<Double-Button-1>", lambda e, s=semana: None)  # Placeholder
+            label_info.bind("<Double-Button-1>", lambda e, s=semana: None)  # Placeholder
+        
+        label_total_semanas.config(text=f"Total Gasto: R$ {total_gasto_semanas:.2f} | Total Faturamento: R$ {total_faturamento_semanas:.2f} | Lucro: R$ {total_faturamento_semanas - total_gasto_semanas:.2f}".replace('.', ','))
+        
+        # --- ATUALIZAR MESES ---
+        for widget in scrollable_meses.winfo_children():
+            widget.destroy()
+        
+        # Agrupa por mês
+        gastos_por_mes = {}
+        for g in gastos_filtrados:
+            data_str = str(g.get('Data', ''))
+            if data_str:
+                try:
+                    dia, mes, ano = map(int, data_str.split('/'))
+                    mes_ano = f"{mes:02d}/{ano}"
+                    if mes_ano not in gastos_por_mes:
+                        gastos_por_mes[mes_ano] = 0
+                    gastos_por_mes[mes_ano] += g.get('Valor', 0)
+                except:
+                    pass
+        
+        pedidos_por_mes = {}
+        for p in pedidos_cache:
+            hora_str = str(p.get('hora', ''))
+            if hora_str and len(hora_str) >= 10:
+                try:
+                    dia, mes, ano = map(int, hora_str[:10].split('/'))
+                    mes_ano = f"{mes:02d}/{ano}"
+                    if mes_ano not in pedidos_por_mes:
+                        pedidos_por_mes[mes_ano] = 0
+                    pedidos_por_mes[mes_ano] += p.get('valor_total', 0.0)
+                except:
+                    pass
+        
+        total_gasto_meses = 0
+        total_faturamento_meses = 0
+        
+        todas_meses = sorted(set(list(gastos_por_mes.keys()) + list(pedidos_por_mes.keys())), reverse=True)
+        
+        for mes_ano in todas_meses:
+            gasto = gastos_por_mes.get(mes_ano, 0)
+            faturamento = pedidos_por_mes.get(mes_ano, 0)
+            lucro = faturamento - gasto
+            
+            total_gasto_meses += gasto
+            total_faturamento_meses += faturamento
+            
+            frame_mes = ttkb.Frame(scrollable_meses, relief="solid", borderwidth=1)
+            frame_mes.pack(fill="x", pady=5, padx=5)
+            
+            if mostra_so_gasto:
+                texto = f"Mês {mes_ano} | Gasto: R$ {gasto:.2f}"
+            else:
+                texto = f"Mês {mes_ano} | Gasto: R$ {gasto:.2f} | Faturamento: R$ {faturamento:.2f} | Lucro: R$ {lucro:.2f}"
+            
+            label_info = ttkb.Label(frame_mes, text=texto, anchor="w")
+            label_info.pack(fill="x", padx=10, pady=5)
+            frame_mes.bind("<Double-Button-1>", lambda e, m=mes_ano: None)  # Placeholder
+            label_info.bind("<Double-Button-1>", lambda e, m=mes_ano: None)  # Placeholder
+        
+        label_total_meses.config(text=f"Total Gasto: R$ {total_gasto_meses:.2f} | Total Faturamento: R$ {total_faturamento_meses:.2f} | Lucro: R$ {total_faturamento_meses - total_gasto_meses:.2f}".replace('.', ','))
+    
+    # Conecta os eventos
+    busca_var.trace_add("write", lambda *args: atualizar_visualizacao())
+    mostra_so_gasto_var.trace_add("write", lambda *args: atualizar_visualizacao())
+    
+    # Carrega inicial
+    atualizar_visualizacao()
+
+
 def iniciar_aplicacao():
     """Inicia a aplicação principal."""
     global janela
@@ -2160,6 +2618,7 @@ def iniciar_aplicacao():
     _criar_aba_clientes(notebook_principal)
     _criar_aba_gerenciar_precos(notebook_principal)
     _criar_aba_caixa(notebook_principal)
+    _criar_aba_gestao(notebook_principal)
 
     janela.mainloop()
 
