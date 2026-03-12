@@ -60,20 +60,44 @@ HEADERS = ['cliente', 'telefone', 'endereco', 'forma_pagamento', 'precisa_troco'
            'troco_valor', 'taxa_entrega', 'status', 'valor_total', 'hora', 'itens']
 
 # ---------------- Preços ----------------
-# Nomes no dicionário permanecem como estão no código original, mas a formatação do CUPOM os retira.
-precos_pizzas = {
-    "Muçarela": 45, "Calabresa": 45, "Presunto": 45, "Mista": 50, "Bacon": 50,
-    "Marguerita": 50, "Portuguesa": 50, "Frango": 50, "Calabacon": 50,
-    "Calabresa Apimentada": 50, "Quatro Queijos": 50, "Frango com Requeijao": 55,
-    "Nordestina": 60, "Frango Cremoso": 60, "Siciliana": 65, "Peito de Peru": 65,
-    "À Moda da Casa": 65, "Paraense": 65, "Filé": 65, "Camarão Rosa": 70,
-    "Filé com Bacon": 70, "Savino Especial": 70, "Brigadeiro": 35, "Disqueti": 35
-}
-precos_bordas = {"Catupiry": 16, "Chocolate": 11, "Cheddar": 14, "Requeijão": 12}
-precos_adicionais = {"Ovo": 2, "Cebola": 2, "Tomate": 3, "Pimentão Verde": 3, "Jambu": 7, "Bacon": 8,
-                     "Calabresa": 8, "Muçarela": 10, "Frango": 10, "Requeijão": 10, "Cheddar": 10,
-                     "Peito de Peru": 11, "Catupiry": 12}
-precos_refrigerantes = {"Coca-cola 1L": 9.0, "Tuchaua 1L": 8.0}
+# Os preços são carregados do arquivo Excel precos.xlsx
+precos_pizzas = {}
+precos_bordas = {}
+precos_adicionais = {}
+precos_refrigerantes = {}
+
+def carregar_precos_do_excel():
+    """Carrega os preços do arquivo Excel precos.xlsx."""
+    global precos_pizzas, precos_bordas, precos_adicionais, precos_refrigerantes
+    
+    try:
+        if not os.path.exists('precos.xlsx'):
+            messagebox.showerror("Erro", "Arquivo precos.xlsx não encontrado!")
+            return False
+        
+        excel_file = pd.ExcelFile('precos.xlsx')
+        
+        # Carrega cada aba
+        if 'Pizzas' in excel_file.sheet_names:
+            df = pd.read_excel('precos.xlsx', sheet_name='Pizzas')
+            precos_pizzas = dict(zip(df['Produto'], df['Preço']))
+        
+        if 'Bordas' in excel_file.sheet_names:
+            df = pd.read_excel('precos.xlsx', sheet_name='Bordas')
+            precos_bordas = dict(zip(df['Produto'], df['Preço']))
+        
+        if 'Adicionais' in excel_file.sheet_names:
+            df = pd.read_excel('precos.xlsx', sheet_name='Adicionais')
+            precos_adicionais = dict(zip(df['Produto'], df['Preço']))
+        
+        if 'Refrigerantes' in excel_file.sheet_names:
+            df = pd.read_excel('precos.xlsx', sheet_name='Refrigerantes')
+            precos_refrigerantes = dict(zip(df['Produto'], df['Preço']))
+        
+        return True
+    except Exception as e:
+        messagebox.showerror("Erro ao carregar preços", f"Erro: {e}")
+        return False
 
 
 def calcular_preco_pizza(sabores_selecionados):
@@ -185,6 +209,9 @@ def _garantir_arquivo_excel():
         except Exception as e:
             messagebox.showerror("Erro de Inicializacao", f"Falha ao criar o arquivo Excel ({EXCEL_FILE}). Verifique permissoes. Erro: {e}")
             return False
+    
+    # Carrega os preços do arquivo
+    carregar_precos_do_excel()
     return True
 
 def carregar_pedidos():
@@ -559,9 +586,37 @@ def gerar_cupom(pedido):
     pagamento_safe = remover_acentos(pedido.get('forma_pagamento', 'N/A'))
     
     # Informações do Cliente e Pedido (Largura Fixa para alinhamento)
-    texto += f"Cliente: {cliente_safe[:(LARGURA_TOTAL - 10)]}\n" 
-    texto += f"Telefone: {str(pedido.get('telefone', 'N/A'))[:(LARGURA_TOTAL - 10)]}\n" 
-    texto += f"Endereco: {endereco_safe[:(LARGURA_TOTAL - 10)]}\n" 
+    texto += f"Cliente: {cliente_safe}\n" 
+    texto += f"Telefone: {str(pedido.get('telefone', 'N/A'))}\n"
+    
+    # Endereço - Permite múltiplas linhas para endereços longos
+    endereco_completo = endereco_safe
+    if endereco_completo:
+        # Divide o endereço em linhas de até 32 caracteres
+        endereco_linhas = []
+        while len(endereco_completo) > LARGURA_TOTAL:
+            # Encontra a última palavra que cabe na linha
+            ultima_espaco = endereco_completo[:LARGURA_TOTAL].rfind(' ')
+            if ultima_espaco == -1:
+                # Se não houver espaço, corta no limite
+                endereco_linhas.append(endereco_completo[:LARGURA_TOTAL])
+                endereco_completo = endereco_completo[LARGURA_TOTAL:]
+            else:
+                endereco_linhas.append(endereco_completo[:ultima_espaco])
+                endereco_completo = endereco_completo[ultima_espaco + 1:]
+        
+        # Adiciona o resto
+        if endereco_completo:
+            endereco_linhas.append(endereco_completo)
+        
+        # Escreve o endereço
+        for idx, linha in enumerate(endereco_linhas):
+            if idx == 0:
+                texto += f"Endereco: {linha}\n"
+            else:
+                texto += f"          {linha}\n"
+    else:
+        texto += f"Endereco: N/A\n" 
     
     # Alinhamento Data/Hora
     texto += f"Data: {data_atual:<15}Hora: {str(pedido.get('hora', 'N/A')).split()[-1]:>7}\n" 
@@ -1663,6 +1718,15 @@ def _criar_aba_clientes(notebook_principal):
     
     ttkb.Label(frame_clientes, text="Historico e Fidelidade", font=("Arial", 16, "bold")).pack(pady=10)
     
+    # Frame para busca
+    frame_busca = ttkb.Frame(frame_clientes)
+    frame_busca.pack(fill="x", pady=10)
+    
+    ttkb.Label(frame_busca, text="Buscar por nome:").pack(side="left", padx=5)
+    busca_var = ttkb.StringVar()
+    entry_busca = ttkb.Entry(frame_busca, textvariable=busca_var, width=30)
+    entry_busca.pack(side="left", padx=5)
+    
     # Tabela de Clientes
     tabela_clientes = ttkb.Treeview(frame_clientes, columns=('nome', 'telefone', 'endereco', 'pedidos'), show='headings', height=15)
     # ORDEM CORRIGIDA: Nome, Telefone, Endereço, Pedidos
@@ -1676,18 +1740,228 @@ def _criar_aba_clientes(notebook_principal):
     frame_clientes_botoes = ttkb.Frame(frame_clientes)
     frame_clientes_botoes.pack(pady=10, fill="x")
     
+    def filtrar_clientes(event=None):
+        """Filtra clientes pela busca."""
+        termo_busca = busca_var.get().lower()
+        # Limpa a tabela
+        for item in tabela_clientes.get_children():
+            tabela_clientes.delete(item)
+        
+        # Recarrega apenas clientes que correspondem
+        if termo_busca == "":
+            atualizar_lista_clientes()
+        else:
+            for cliente_nome, cliente_info in historico_clientes.items():
+                if termo_busca in cliente_nome.lower():
+                    ultim_endereco = cliente_info.get('endereco', 'N/A')
+                    total_pedidos = cliente_info.get('pedidos', 0)
+                    telefone = cliente_info.get('telefone', 'N/A')
+                    tabela_clientes.insert("", ttkb.END, values=(cliente_nome, telefone, ultim_endereco, total_pedidos), tags=('fidelidade',))
+    
+    busca_var.trace_add("write", filtrar_clientes)
+    
     ttkb.Button(frame_clientes_botoes, text="Atualizar Lista de Clientes", command=atualizar_lista_clientes, bootstyle="info").pack(side="left", padx=5)
     ttkb.Button(frame_clientes_botoes, text="Editar Cliente", command=lambda: abrir_janela_edicao_cliente(tabela_clientes), bootstyle="warning").pack(side="left", padx=5)
     
     atualizar_lista_clientes()
 
 
-def _criar_aba_gerenciamento(notebook_principal):
-    """Cria a aba de Gerenciamento."""
+def salvar_precos_no_excel():
+    """Salva os preços atualizados no arquivo Excel."""
+    try:
+        with pd.ExcelWriter('precos.xlsx', engine='openpyxl', mode='w') as writer:
+            # Salva Pizzas
+            if precos_pizzas:
+                df = pd.DataFrame(list(precos_pizzas.items()), columns=['Produto', 'Preço'])
+                df.to_excel(writer, sheet_name='Pizzas', index=False)
+            
+            # Salva Bordas
+            if precos_bordas:
+                df = pd.DataFrame(list(precos_bordas.items()), columns=['Produto', 'Preço'])
+                df.to_excel(writer, sheet_name='Bordas', index=False)
+            
+            # Salva Adicionais
+            if precos_adicionais:
+                df = pd.DataFrame(list(precos_adicionais.items()), columns=['Produto', 'Preço'])
+                df.to_excel(writer, sheet_name='Adicionais', index=False)
+            
+            # Salva Refrigerantes
+            if precos_refrigerantes:
+                df = pd.DataFrame(list(precos_refrigerantes.items()), columns=['Produto', 'Preço'])
+                df.to_excel(writer, sheet_name='Refrigerantes', index=False)
+        
+        messagebox.showinfo("Sucesso", "Preços salvos com sucesso!")
+        return True
+    except Exception as e:
+        messagebox.showerror("Erro ao salvar", f"Erro: {e}")
+        return False
+
+
+def abrir_janela_gerenciar_precos():
+    """Abre janela para gerenciar preços."""
+    janela_precos = Toplevel(janela)
+    janela_precos.title("Gerenciar Preços")
+    janela_precos.geometry("600x500")
+    
+    # Frame para seleção de categoria
+    frame_categoria = ttkb.Frame(janela_precos, padding=10)
+    frame_categoria.pack(fill="x", pady=10)
+    
+    ttkb.Label(frame_categoria, text="Categoria:", font=("Arial", 12, "bold")).pack(side="left", padx=5)
+    
+    categoria_var = ttkb.StringVar(value="Pizzas")
+    categoria_combo = ttkb.Combobox(frame_categoria, textvariable=categoria_var, 
+                                     values=["Pizzas", "Bordas", "Adicionais", "Refrigerantes"],
+                                     state="readonly", width=20)
+    categoria_combo.pack(side="left", padx=5)
+    
+    # Frame para listagem de produtos
+    frame_produtos = ttkb.Frame(janela_precos)
+    frame_produtos.pack(fill="both", expand=True, padx=10, pady=10)
+    
+    ttkb.Label(frame_produtos, text="Produtos e Preços", font=("Arial", 11, "bold")).pack(fill="x")
+    
+    # Canvas com Scrollbar
+    canvas = Canvas(frame_produtos, bg="white", height=300)
+    scrollbar = ttk.Scrollbar(frame_produtos, orient="vertical", command=canvas.yview)
+    scrollable_frame = ttkb.Frame(canvas)
+    
+    scrollable_frame.bind(
+        "<Configure>",
+        lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+    )
+    
+    canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+    canvas.configure(yscrollcommand=scrollbar.set)
+    
+    canvas.pack(side="left", fill="both", expand=True)
+    scrollbar.pack(side="right", fill="y")
+    
+    # Frame para adicionar novo produto
+    frame_novo = ttkb.LabelFrame(janela_precos, text=" Adicionar Novo Produto ", padding=10)
+    frame_novo.pack(fill="x", padx=10, pady=10)
+    
+    ttkb.Label(frame_novo, text="Nome do Produto:").grid(row=0, column=0, padx=5, pady=5)
+    entry_nome = ttkb.Entry(frame_novo, width=30)
+    entry_nome.grid(row=0, column=1, padx=5, pady=5)
+    
+    ttkb.Label(frame_novo, text="Preço (R$):").grid(row=1, column=0, padx=5, pady=5)
+    entry_preco = ttkb.Entry(frame_novo, width=30)
+    entry_preco.grid(row=1, column=1, padx=5, pady=5)
+    
+    def atualizar_lista_produtos():
+        """Atualiza a lista de produtos da categoria selecionada."""
+        for widget in scrollable_frame.winfo_children():
+            widget.destroy()
+        
+        categoria = categoria_var.get()
+        if categoria == "Pizzas":
+            dict_precos = precos_pizzas
+        elif categoria == "Bordas":
+            dict_precos = precos_bordas
+        elif categoria == "Adicionais":
+            dict_precos = precos_adicionais
+        else:
+            dict_precos = precos_refrigerantes
+        
+        for produto, preco in dict_precos.items():
+            frame_item = ttkb.Frame(scrollable_frame, relief="solid", borderwidth=1)
+            frame_item.pack(fill="x", pady=5, padx=5)
+            
+            ttkb.Label(frame_item, text=f"{produto}: R$ {preco:.2f}", width=40, anchor="w").pack(side="left", padx=10, pady=5)
+            
+            def editar_preco(p=produto, c=categoria):
+                novo_preco = simpledialog.askfloat("Editar Preço", f"Novo preço para {p}:", initialvalue=dict_precos[p])
+                if novo_preco is not None and novo_preco > 0:
+                    if c == "Pizzas":
+                        precos_pizzas[p] = novo_preco
+                    elif c == "Bordas":
+                        precos_bordas[p] = novo_preco
+                    elif c == "Adicionais":
+                        precos_adicionais[p] = novo_preco
+                    else:
+                        precos_refrigerantes[p] = novo_preco
+                    atualizar_lista_produtos()
+            
+            def remover_produto(p=produto, c=categoria):
+                if messagebox.askyesno("Confirmar", f"Remover {p}?"):
+                    if c == "Pizzas":
+                        del precos_pizzas[p]
+                    elif c == "Bordas":
+                        del precos_bordas[p]
+                    elif c == "Adicionais":
+                        del precos_adicionais[p]
+                    else:
+                        del precos_refrigerantes[p]
+                    atualizar_lista_produtos()
+            
+            ttkb.Button(frame_item, text="Editar", command=editar_preco, bootstyle="warning", width=10).pack(side="left", padx=2)
+            ttkb.Button(frame_item, text="Remover", command=remover_produto, bootstyle="danger", width=10).pack(side="left", padx=2)
+    
+    def adicionar_novo_produto():
+        """Adiciona um novo produto à categoria."""
+        nome = entry_nome.get().strip()
+        try:
+            preco = float(entry_preco.get())
+        except:
+            messagebox.showerror("Erro", "Preço inválido!")
+            return
+        
+        if not nome or preco <= 0:
+            messagebox.showerror("Erro", "Nome e preço válidos são obrigatórios!")
+            return
+        
+        categoria = categoria_var.get()
+        if categoria == "Pizzas":
+            precos_pizzas[nome] = preco
+        elif categoria == "Bordas":
+            precos_bordas[nome] = preco
+        elif categoria == "Adicionais":
+            precos_adicionais[nome] = preco
+        else:
+            precos_refrigerantes[nome] = preco
+        
+        entry_nome.delete(0, ttkb.END)
+        entry_preco.delete(0, ttkb.END)
+        atualizar_lista_produtos()
+    
+    categoria_combo.bind("<<ComboboxSelected>>", lambda e: atualizar_lista_produtos())
+    ttkb.Button(frame_novo, text="Adicionar", command=adicionar_novo_produto, bootstyle="success").grid(row=2, column=0, columnspan=2, pady=10, sticky="ew")
+    
+    # Frame de botões inferiores
+    frame_botoes = ttkb.Frame(janela_precos)
+    frame_botoes.pack(fill="x", padx=10, pady=10)
+    
+    ttkb.Button(frame_botoes, text="Salvar Preços", command=salvar_precos_no_excel, bootstyle="success").pack(side="left", padx=5)
+    ttkb.Button(frame_botoes, text="Fechar", command=janela_precos.destroy, bootstyle="secondary").pack(side="right", padx=5)
+    
+    # Carrega a lista inicial
+    atualizar_lista_produtos()
+
+
+def _criar_aba_gerenciar_precos(notebook_principal):
+    """Cria a aba de Gerenciar Preços."""
+    frame_precos = ttkb.Frame(notebook_principal, padding=20)
+    notebook_principal.add(frame_precos, text="Gerenciar Preços")
+    
+    ttkb.Label(frame_precos, text="Gerenciar Preços de Produtos", font=("Arial", 16, "bold")).pack(pady=20)
+    
+    ttkb.Label(frame_precos, text="Aqui você pode adicionar, editar ou remover preços de pizzas, bordas, adicionais e refrigerantes.", 
+               justify="center").pack(pady=10)
+    
+    ttkb.Button(frame_precos, text="Abrir Gerenciador de Preços", command=abrir_janela_gerenciar_precos, 
+                bootstyle="info", width=30).pack(pady=20)
+    
+    ttkb.Label(frame_precos, text="Os preços são salvos automaticamente no arquivo precos.xlsx", 
+               font=("Arial", 10, "italic")).pack(pady=10)
+
+
+def _criar_aba_caixa(notebook_principal):
+    """Cria a aba de Caixa (Relatórios e Gerenciamento de Fundos)."""
     global relatorio_label
     
     frame_gerenciamento = ttkb.Frame(notebook_principal, padding=10)
-    notebook_principal.add(frame_gerenciamento, text="Gerenciamento")
+    notebook_principal.add(frame_gerenciamento, text="Caixa")
 
     # --- Relatórios ---
 
@@ -1712,6 +1986,10 @@ def _criar_aba_gerenciamento(notebook_principal):
 def iniciar_aplicacao():
     """Inicia a aplicação principal."""
     global janela
+    
+    # Carrega os preços do Excel na inicialização
+    _garantir_arquivo_excel()
+    
     janela = ttkb.Window(themename="superhero") 
     janela.title("Sistema de Pedidos PIZZARIA v1.0")
     janela.geometry("800x600")
@@ -1721,8 +1999,9 @@ def iniciar_aplicacao():
 
     _criar_aba_pedidos_ativos(notebook_principal)
     _criar_aba_pedidos_arquivados(notebook_principal) 
-    _criar_aba_clientes(notebook_principal) 
-    _criar_aba_gerenciamento(notebook_principal)
+    _criar_aba_clientes(notebook_principal)
+    _criar_aba_gerenciar_precos(notebook_principal)
+    _criar_aba_caixa(notebook_principal)
 
     janela.mainloop()
 
